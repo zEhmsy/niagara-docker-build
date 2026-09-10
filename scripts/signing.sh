@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
 #
-# Gestisce il profilo di code-signing usato dai build.
+# Manages the code-signing profile used by the builds.
 #
-#   ./scripts/signing.sh init [--dname "CN=..."] [--alias nome]
-#       crea un profilo self-signed STABILE (non cambia a ogni build)
+#   ./scripts/signing.sh init [--dname "CN=..."] [--alias name]
+#       create a STABLE self-signed profile (does not change between builds)
 #
 #   ./scripts/signing.sh import --cert cert.pem --key key.pem [--chain ca.pem]
-#       importa la TUA coppia chiave/certificato (PEM) nel profilo
+#       import YOUR own key/certificate pair (PEM) into the profile
 #
-#   ./scripts/signing.sh import --keystore mio.jceks --storepass xxx
-#       usa un keystore JCEKS gia' pronto (es. copiato dal Workbench)
+#   ./scripts/signing.sh import --keystore mine.jceks --storepass xxx
+#       reuse an existing JCEKS keystore (e.g. copied from Workbench)
 #
-#   ./scripts/signing.sh show          elenca il contenuto del keystore
-#   ./scripts/signing.sh export-cert   esporta il .pem da fidare in Workbench
+#   ./scripts/signing.sh show          list what is in the keystore
+#   ./scripts/signing.sh export-cert   export the .pem to trust in Workbench
 #
-# Tutto finisce in NIAGARA_SIGNING_HOME/security (default ~/.niagara-docker/tridium),
-# che nbuild.sh monta come ~/.tridium nel container.
+# Everything lands in NIAGARA_SIGNING_HOME/security (default
+# ~/.niagara-docker/tridium), which nbuild.sh mounts as ~/.tridium.
 #
 set -euo pipefail
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
@@ -30,9 +30,9 @@ XML="${SEC}/niagara.signing.xml"
 : "${KEYTOOL_IMAGE:=eclipse-temurin:21-jdk}"
 : "${TMPDIR_SIGN:=/tmp}"
 
-# keytool: quello dell'host se c'e', altrimenti da container.
-# -Duser.language=en: l'output localizzato romperebbe i grep piu' sotto.
-# Il warning "JCEKS uses a proprietary format" e' atteso — Niagara VUOLE JCEKS.
+# keytool: the host one if available, otherwise from a container.
+# -Duser.language=en: localized output would break the greps below.
+# The "JCEKS uses a proprietary format" warning is expected — Niagara wants JCEKS.
 keytool_run() {
   local rc=0
   if command -v keytool >/dev/null 2>&1; then
@@ -84,7 +84,7 @@ backup_existing() {
   if [ -e "${KS}" ] || [ -e "${XML}" ]; then
     local bak
     bak="${SEC}.bak.$(date +%Y%m%d%H%M%S)"
-    info "profilo esistente spostato in ${bak}"
+    info "existing profile moved to ${bak}"
     mv "${SEC}" "${bak}"
     mkdir -p "${SEC}"
   fi
@@ -101,7 +101,7 @@ cmd_init() {
     case "$1" in
       --dname) dname="$2"; shift 2 ;;
       --alias) alias_arg="$2"; shift 2 ;;
-      *) die "opzione sconosciuta: $1" ;;
+      *) die "unknown option: $1" ;;
     esac
   done
   [ -n "${alias_arg}" ] && NIAGARA_SIGNING_ALIAS="${alias_arg}"
@@ -126,32 +126,32 @@ cmd_init() {
   chmod 600 "${KS}"
   write_profile_xml "${storepass}" "${keypass}" "${dname}"
 
-  info "profilo creato in ${SEC}"
+  info "profile created in ${SEC}"
   cmd_export_cert
 }
 
-# Tridium rifiuta i certificati senza Extended Key Usage "Code Signing":
-# il build fallisce a `:<modulo>:jar` con
+# Tridium rejects certificates without the "Code Signing" Extended Key Usage:
+# the build dies at `:<module>:jar` with
 #   "Certificate for Niagara4Modules is not valid for code signing".
-# Meglio dirlo subito, qui, che dopo minuti di compilazione.
+# Better to say so here than after minutes of compiling.
 validate_codesign_cert() {
   local cert="$1" text
-  text="$(openssl x509 -in "${cert}" -noout -text 2>/dev/null)" || die "PEM non leggibile: ${cert}"
+  text="$(openssl x509 -in "${cert}" -noout -text 2>/dev/null)" || die "cannot read PEM: ${cert}"
   if ! printf '%s' "${text}" | grep -A2 -i "Extended Key Usage" | grep -qi "Code Signing"; then
     if [ "${FORCE_IMPORT:-0}" = "1" ]; then
-      info "ATTENZIONE: nessun EKU Code Signing, importo lo stesso (FORCE_IMPORT=1)."
+      info "WARNING: no Code Signing EKU, importing anyway (FORCE_IMPORT=1)."
       return 0
     fi
     cat >&2 <<MSG
-ERRORE: ${cert} non ha l'Extended Key Usage "Code Signing".
-        Niagara rifiuta di firmare con questo certificato e il build muore al
-        task :<modulo>:jar. Serve un cert con:
-          X509v3 Key Usage:          Digital Signature
-          X509v3 Extended Key Usage: Code Signing
-        Se lo generi tu, la strada breve e':
-          ./scripts/signing.sh init --dname "CN=MioVendor, O=MiaAzienda, C=IT"
-        Se e' un cert aziendale, chiedi a chi lo emette di aggiungere l'EKU.
-        Per forzare comunque: FORCE_IMPORT=1 $0 import ...
+ERROR: ${cert} has no "Code Signing" Extended Key Usage.
+       Niagara refuses to sign with it and the build dies at :<module>:jar.
+       The certificate needs:
+         X509v3 Key Usage:          Digital Signature
+         X509v3 Extended Key Usage: Code Signing
+       If you issue it yourself, the short path is:
+         ./scripts/signing.sh init --dname "CN=MyVendor, O=MyCo, C=IT"
+       If it is a corporate certificate, ask the issuer to add the EKU.
+       To import anyway: FORCE_IMPORT=1 $0 import ...
 MSG
     exit 1
   fi
@@ -167,7 +167,7 @@ cmd_import() {
       --keystore)  keystore="$2"; shift 2 ;;
       --storepass) storepass="$2"; shift 2 ;;
       --alias)     alias_arg="$2"; shift 2 ;;
-      *) die "opzione sconosciuta: $1" ;;
+      *) die "unknown option: $1" ;;
     esac
   done
   [ -n "${alias_arg}" ] && NIAGARA_SIGNING_ALIAS="${alias_arg}"
@@ -175,25 +175,27 @@ cmd_import() {
   mkdir -p "${SEC}"; chmod 700 "${SEC}"
 
   if [ -n "${keystore}" ]; then
-    [ -f "${keystore}" ] || die "keystore non trovato: ${keystore}"
-    [ -n "${storepass}" ] || die "--keystore richiede anche --storepass"
+    [ -f "${keystore}" ] || die "keystore not found: ${keystore}"
+    [ -n "${storepass}" ] || die "--keystore also requires --storepass"
     backup_existing
     cp "${keystore}" "${KS}"; chmod 600 "${KS}"
     write_profile_xml "${storepass}" "${storepass}" \
       "CN=imported, OU=Niagara Module Signing"
-    info "keystore importato in ${KS}"
+    info "keystore imported into ${KS}"
     cmd_show
     return
   fi
 
-  [ -n "${cert}" ] && [ -n "${key}" ] || die "servono --cert <file.pem> --key <file.pem> (oppure --keystore)"
-  [ -f "${cert}" ] || die "certificato non trovato: ${cert}"
-  [ -f "${key}"  ] || die "chiave privata non trovata: ${key}"
-  command -v openssl >/dev/null 2>&1 || die "serve openssl per convertire i PEM."
+  if [ -z "${cert}" ] || [ -z "${key}" ]; then
+    die "need --cert <file.pem> --key <file.pem> (or --keystore)"
+  fi
+  [ -f "${cert}" ] || die "certificate not found: ${cert}"
+  [ -f "${key}"  ] || die "private key not found: ${key}"
+  command -v openssl >/dev/null 2>&1 || die "openssl is required to convert the PEM files."
   validate_codesign_cert "${cert}"
 
-  # variabile globale: il trap EXIT scatta fuori da questa funzione, dove una
-  # `local` non esisterebbe piu'.
+  # Global on purpose: the EXIT trap fires outside this function, where a
+  # `local` would no longer exist.
   TMPWORK="$(mktemp -d -t niagara-signing.XXXXXX)"
   local tmp="${TMPWORK}"
   TMPDIR_SIGN="${TMPWORK}"
@@ -206,7 +208,7 @@ cmd_import() {
     certfile="${tmp}/full.pem"
   fi
 
-  # PEM -> PKCS12 -> JCEKS: keytool non importa i PEM direttamente.
+  # PEM -> PKCS12 -> JCEKS: keytool cannot import PEM files directly.
   openssl pkcs12 -export \
     -in "${certfile}" -inkey "${key}" \
     -name "${NIAGARA_SIGNING_ALIAS}" \
@@ -225,20 +227,20 @@ cmd_import() {
   dname="$(openssl x509 -in "${cert}" -noout -subject 2>/dev/null | sed 's/^subject= *//' || echo "CN=imported")"
   write_profile_xml "${pass}" "${pass}" "${dname}"
 
-  info "certificato importato in ${KS} (alias ${NIAGARA_SIGNING_ALIAS})"
+  info "certificate imported into ${KS} (alias ${NIAGARA_SIGNING_ALIAS})"
   cmd_show
 }
 
 cmd_show() {
-  [ -f "${KS}" ] || die "nessun keystore in ${KS}. Lancia: $0 init"
-  local sp; sp="$(read_prop niagara.signing.storepass)" || die "manca ${XML}"
+  [ -f "${KS}" ] || die "no keystore in ${KS}. Run: $0 init"
+  local sp; sp="$(read_prop niagara.signing.storepass)" || die "missing ${XML}"
   TMPDIR_SIGN="${SEC}"
   keytool_run -list -v -keystore "${KS}" -storetype JCEKS -storepass "${sp}" \
     | grep -E "Alias name|Owner|Issuer|Valid from|Signature algorithm" || true
 }
 
 cmd_export_cert() {
-  [ -f "${KS}" ] || die "nessun keystore in ${KS}. Lancia: $0 init"
+  [ -f "${KS}" ] || die "no keystore in ${KS}. Run: $0 init"
   local sp alias_key out
   sp="$(read_prop niagara.signing.storepass)"
   alias_key="$(sed -n 's@.*<entry key="niagara.signing.keypass.\([^"]*\)">.*@\1@p' "${XML}" | head -1)"
@@ -248,9 +250,9 @@ cmd_export_cert() {
   keytool_run -exportcert -rfc \
     -alias "${alias_key}" -keystore "${KS}" -storetype JCEKS -storepass "${sp}" \
     -file "${out}"
-  info "certificato pubblico: ${out}"
-  info "importalo nella User Trust Store di Workbench e della Platform,"
-  info "altrimenti il modulo firmato non viene accettato."
+  info "public certificate: ${out}"
+  info "import it into the Workbench and Platform User Trust Stores,"
+  info "otherwise the signed module will be rejected."
 }
 
 case "${1:-}" in
@@ -259,6 +261,8 @@ case "${1:-}" in
   show)        shift; cmd_show ;;
   export-cert) shift; cmd_export_cert ;;
   *)
-    sed -n '3,26p' "$0" | sed 's/^# \{0,1\}//'
+    # Print the header block (comment lines after the shebang) as usage text,
+    # so the two never drift apart.
+    awk 'NR>1 && /^#/ { sub(/^# ?/, ""); print; next } NR>1 { exit }' "$0"
     exit 2 ;;
 esac

@@ -1,5 +1,5 @@
-# Context = cartella installer: al daemon mandiamo solo lo zip del Supervisor
-# Linux x64. Se il tuo zip ha un nome diverso, aggiungi la riga `!<pattern>`.
+# Context = installer folder: we only send the Linux x64 Supervisor zip to the
+# daemon. If your zip is named differently, add its `!<pattern>` line here.
 *
 !*N4*Linux_x64*.zip
 !*Linux_x64*.zip

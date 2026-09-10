@@ -1,25 +1,25 @@
 # syntax=docker/dockerfile:1.7
 #
-# Immagine di BUILD per moduli Niagara 4.x (non di runtime).
-# Gemella di ./Dockerfile.n5.
+# BUILD image for Niagara 4.x modules (not a runtime image).
+# Twin of ./Dockerfile.n5.
 #
-# A differenza del .deb di N5, qui c'e' un installer con silent install:
+# Unlike the N5 .deb, this installer supports a silent install:
 #   bash install.sh silent.properties
-# I plugin Gradle Tridium NON sono nello zip: vengono estratti dall'installer
-# dentro <niagara_home>/etc/m2, quindi l'immagine e' autosufficiente.
+# The Tridium Gradle plugins are NOT in the zip: the installer drops them into
+# <niagara_home>/etc/m2, so the image is self-contained.
 #
-# LICENZA: contiene binari Tridium. Uso interno, mai su registry pubblici.
+# LICENSING: contains Tridium binaries. Internal use, never on public registries.
 
 ARG NIAGARA_VERSION=4.15.3.28
 
 # ---------------------------------------------------------------------------
-# Stage 1 - silent install dell'installer Linux
+# Stage 1 - silent install of the Linux installer
 # ---------------------------------------------------------------------------
 FROM ubuntu:24.04 AS install
 ARG NIAGARA_VERSION
 ARG INSTALLER_ZIP
 
-# Dipendenze richieste da install.sh (lista COMMON_FILES + UBUNTU_FILES):
+# Dependencies required by install.sh (COMMON_FILES + UBUNTU_FILES lists):
 # gio -> libglib2.0-bin, fromdos -> tofrodos, visudo -> sudo,
 # useradd/groupadd/sg -> passwd, runuser -> util-linux, update-rc.d -> init-system-helpers
 RUN apt-get update \
@@ -32,36 +32,37 @@ RUN --mount=type=bind,target=/ctx \
     set -eu; \
     mkdir -p /tmp/n4; cd /tmp/n4; \
     unzip -q "/ctx/${INSTALLER_ZIP}"; \
-    # L'installer e' interattivo: le risposte vanno tutte messe nel file di
-    # properties. Un campo VUOTO viene trattato come "si'", quindi addUsers va
-    # forzato a no (in un container non ci sono utenti desktop da abilitare) e
-    # installService a no (non c'e' systemd).
+    # The installer is interactive: every answer has to live in the properties
+    # file. An EMPTY field is read as "yes", so addUsers must be forced to no
+    # (a container has no desktop users to enable) and installService to no
+    # (there is no systemd).
     sed -e "s/^installService=.*/installService=no/" \
         -e "s/^installDesktopShortcuts=.*/installDesktopShortcuts=no/" \
         -e "s/^installMenuShortcuts=.*/installMenuShortcuts=no/" \
         -e "s/^addUsers=.*/addUsers=no/" \
         -e "s/^modifySudoers=.*/modifySudoers=no/" \
         silent.properties > /tmp/n4/silent.docker.properties; \
-    # NON impostare installDirectory: valorizzandolo l'installer fallisce a
-    # "set the Host ID and generate key material (runuser failed)". Lasciato
-    # vuoto usa il default, che e' comunque /opt/Niagara/Niagara-<versione>.
+    # Do NOT set installDirectory: with a value the installer dies at
+    # "set the Host ID and generate key material (runuser failed)". Left empty
+    # it uses the default, which is /opt/Niagara/Niagara-<version> anyway.
     bash install.sh /tmp/n4/silent.docker.properties; \
     cd /; rm -rf /tmp/n4; \
     N=/opt/Niagara/Niagara-${NIAGARA_VERSION}; \
-    # Roba che serve solo a runtime/Workbench: via, pesa e non compila nulla.
+    # Runtime/Workbench-only material: dropped, it is heavy and compiles nothing.
     rm -rf "$N/javadoc" "$N/cleanDist" "$N/conversion"; \
     test -x "$N/jre/bin/javac"; \
     test -d "$N/etc/m2"; \
     test -d "$N/modules"
 
 # ---------------------------------------------------------------------------
-# Stage 1b - JDK 8 completo per `jar`, `jarsigner` e `javadoc`
+# Stage 1b - full JDK 8 for `jar`, `jarsigner` and `javadoc`
 #
-# Il JRE Zulu 8 di Niagara ha `javac` ma NON `jar`, `jarsigner` e `javadoc`,
-# che i plugin Tridium invocano da PATH. Deve essere un JDK **8**: il task
-# `bajadoc` gira col doclet Tridium (lib/niagara-baja-doclet-*.jar), scritto
-# per la vecchia Doclet API - con il javadoc di un JDK moderno fallisce.
-# JAVA_HOME resta pero' il JRE di Niagara, l'unico con JavaFX (jre/lib/ext/jfxrt.jar).
+# Niagara's Zulu 8 JRE has `javac` but NOT `jar`, `jarsigner` and `javadoc`,
+# which the Tridium plugins invoke from PATH. It must be a JDK **8**: the
+# `bajadoc` task runs the Tridium doclet (lib/niagara-baja-doclet-*.jar),
+# written against the old Doclet API — a modern javadoc fails on it.
+# JAVA_HOME stays on the Niagara JRE though, the only one with JavaFX
+# (jre/lib/ext/jfxrt.jar).
 # ---------------------------------------------------------------------------
 FROM ubuntu:24.04 AS jdk
 ARG JDK_URL=https://api.adoptium.net/v3/binary/latest/8/ga/linux/x64/jdk/hotspot/normal/eclipse
@@ -76,7 +77,7 @@ RUN set -eu; \
     test -x /opt/jdk-full/bin/jarsigner
 
 # ---------------------------------------------------------------------------
-# Stage 2 - immagine finale
+# Stage 2 - final image
 # ---------------------------------------------------------------------------
 FROM ubuntu:24.04
 ARG NIAGARA_VERSION
@@ -104,10 +105,10 @@ ENV NIAGARA_VERSION=${NIAGARA_VERSION} \
     GRADLE_USER_HOME=/home/builder/.gradle
 ENV PATH=${JAVA_HOME}/bin:/opt/jdk-full/bin:${PATH}
 
-# Gradle NON cerca questi tool nel PATH: invoca direttamente
-# ${JAVA_HOME}/bin/<tool> (es. il task bajadoc lancia jre/bin/javadoc).
-# I symlink bastano: i launcher Java risolvono il link e trovano da soli
-# la home del JDK 8 vero.
+# Gradle does NOT look for these tools in PATH: it calls
+# ${JAVA_HOME}/bin/<tool> directly (e.g. the bajadoc task runs jre/bin/javadoc).
+# Symlinks are enough: the Java launchers resolve the link and find the real
+# JDK 8 home on their own.
 RUN for t in jar jarsigner javadoc javap; do \
       ln -sf "/opt/jdk-full/bin/$t" "${JAVA_HOME}/bin/$t"; \
     done \
@@ -119,7 +120,7 @@ RUN mkdir -p "${NIAGARA_USER_HOME}" "${GRADLE_USER_HOME}" \
 RUN <<'EOF' bash -eu
 cat > /usr/local/bin/entrypoint.sh <<'SCRIPT'
 #!/usr/bin/env bash
-# N4 ha due "home" (in N5 sono tre: si aggiunge niagara_config_home).
+# N4 has two "homes" (N5 has three: it adds niagara_config_home).
 set -euo pipefail
 
 if [ "${1:-}" = "shell" ]; then
@@ -128,7 +129,7 @@ if [ "${1:-}" = "shell" ]; then
 fi
 
 if [ ! -x ./gradlew ]; then
-  echo "ERRORE: nessun ./gradlew in $(pwd). Monta la root del progetto su /work." >&2
+  echo "ERROR: no ./gradlew in $(pwd). Mount the project root at /work." >&2
   exit 2
 fi
 

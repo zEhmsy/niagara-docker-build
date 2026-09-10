@@ -1,22 +1,22 @@
 # syntax=docker/dockerfile:1.7
 #
-# Immagine di BUILD per moduli Niagara 5 (non di runtime).
+# BUILD image for Niagara 5 modules (not a runtime image).
 #
-# Contiene: JDK di Niagara, repo m2 con i plugin Gradle Tridium, moduli Niagara
-# per la compilazione. NON contiene: JxBrowser (UI Workbench), javadoc, licenze,
-# chiavi di firma.
+# It contains: the Niagara JDK, an m2 repo with the Tridium Gradle plugins and
+# the Niagara modules needed to compile. It does NOT contain: JxBrowser
+# (Workbench UI), javadoc, licenses or signing keys.
 #
-# LICENZA: l'immagine include binari Tridium. Uso interno soltanto: non
-# pubblicarla su registry pubblici (Docker Hub, GHCR public).
+# LICENSING: the image embeds Tridium binaries. Internal use only: do not push
+# it to public registries (Docker Hub, public GHCR).
 #
-# Il .deb pretende Ubuntu 24.04/26.04 + systemd attivo nel preinst, quindi
-# `dpkg -i` non funziona in un container. Estraiamo direttamente il payload:
-# per compilare non servono ne' systemd ne' l'utente `niagara`.
+# The .deb requires Ubuntu 24.04/26.04 with a live systemd in its preinst, so
+# `dpkg -i` does not work inside a container. We extract the payload directly:
+# compiling needs neither systemd nor the `niagara` user.
 
 ARG NIAGARA_VERSION=5.0.0.12
 
 # ---------------------------------------------------------------------------
-# Stage 1 - estrazione del payload dal .deb
+# Stage 1 - extract the payload from the .deb
 # ---------------------------------------------------------------------------
 FROM ubuntu:24.04 AS extract
 ARG NIAGARA_VERSION
@@ -27,8 +27,8 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends unzip \
  && rm -rf /var/lib/apt/lists/*
 
-# Il context e' la cartella degli installer (vedi Dockerfile.n5.dockerignore).
-# Lo zip resta fuori dai layer: viene montato, non copiato.
+# The context is the installer folder (see Dockerfile.n5.dockerignore).
+# The zip stays out of the layers: it is mounted, not copied.
 RUN --mount=type=bind,target=/ctx \
     set -eu; \
     mkdir -p /rootfs /tmp/deb; \
@@ -45,12 +45,12 @@ RUN --mount=type=bind,target=/ctx \
     test -d "/rootfs/etc/niagara/${NIAGARA_BRAND}/config/${NIAGARA_VERSION}/modules"
 
 # ---------------------------------------------------------------------------
-# Stage 1b - JDK completo
+# Stage 1b - full JDK
 #
-# Il JDK incluso in Niagara per Linux e' trimmato con jlink: ha `javac` ma NON
-# il modulo `jdk.jartool`, quindi mancano `jar` e `jarsigner`, che i plugin
-# Tridium (n-module, sign) invocano come eseguibili da PATH.
-# Serve quindi un JDK completo della STESSA major version di quello Niagara.
+# The JDK shipped with Niagara for Linux is jlink-trimmed: it has `javac` but
+# NOT the `jdk.jartool` module, so `jar` and `jarsigner` are missing — and the
+# Tridium plugins (n-module, sign) invoke those as executables from PATH.
+# Hence a full JDK of the SAME major version as the Niagara one.
 # ---------------------------------------------------------------------------
 FROM ubuntu:24.04 AS jdk
 ARG JDK_URL=https://api.adoptium.net/v3/binary/latest/25/ga/linux/x64/jdk/hotspot/normal/eclipse
@@ -65,7 +65,7 @@ RUN set -eu; \
     /opt/jdk-full/bin/javac -version
 
 # ---------------------------------------------------------------------------
-# Stage 2 - immagine finale
+# Stage 2 - final image
 # ---------------------------------------------------------------------------
 FROM ubuntu:24.04
 ARG NIAGARA_VERSION
@@ -78,15 +78,15 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates unzip zip git \
  && rm -rf /var/lib/apt/lists/*
 
-# ubuntu:24.04 occupa gia' uid 1000 con l'utente `ubuntu`: lo rimuoviamo per
-# poter allineare `builder` all'uid dell'host (i file scritti nel bind mount
-# restano di proprieta' dell'utente host).
+# ubuntu:24.04 already uses uid 1000 for the `ubuntu` user: we drop it so that
+# `builder` can match the host uid (files written through the bind mount stay
+# owned by the host user).
 RUN userdel -r ubuntu 2>/dev/null || true; \
     groupadd -g "${BUILDER_GID}" builder 2>/dev/null || true; \
     useradd -m -u "${BUILDER_UID}" -g "${BUILDER_GID}" -s /bin/bash builder
 
-# Il .deb installa tutto come uid 5011 (`niagara`) con permessi drwxr-x---:
-# senza --chown l'utente di build non riesce nemmeno a leggere il JDK.
+# The .deb installs everything as uid 5011 (`niagara`) with drwxr-x--- perms:
+# without --chown the build user cannot even read the JDK.
 COPY --from=extract --chown=${BUILDER_UID}:${BUILDER_GID} /rootfs/opt/Niagara /opt/Niagara
 COPY --from=extract --chown=${BUILDER_UID}:${BUILDER_GID} /rootfs/etc/niagara /etc/niagara
 COPY --from=jdk /opt/jdk-full /opt/jdk-full
@@ -99,39 +99,39 @@ ENV NIAGARA_VERSION=${NIAGARA_VERSION} \
     GRADLE_PLUGIN_HOME=/opt/Niagara/${NIAGARA_VERSION}/etc/m2/repository \
     GRADLE_USER_HOME=/home/builder/.gradle
 
-# JAVA_HOME resta il JDK di Niagara: e' l'unico che contiene i moduli JavaFX
-# richiesti dalle dipendenze Workbench (bajaui, gx, workbench).
-# /opt/jdk-full/bin viene DOPO nel PATH: serve solo a fornire `jar` e
-# `jarsigner`, che sono launcher autonomi (risolvono la propria home dal path
-# del binario, non da JAVA_HOME).
+# JAVA_HOME stays on the Niagara JDK: it is the only one carrying the JavaFX
+# modules required by the Workbench dependencies (bajaui, gx, workbench).
+# /opt/jdk-full/bin comes LATER in PATH: it only provides `jar` and
+# `jarsigner`, which are self-contained launchers (they resolve their own home
+# from the binary path, not from JAVA_HOME).
 ENV PATH=${JAVA_HOME}/bin:/opt/jdk-full/bin:${PATH}
 
-# niagara_user_home: qui il plugin `sign` cerca il profilo di firma.
-# Va montato dall'host (vedi nbuild.sh) - nell'immagine c'e' solo la dir vuota.
-# uid/gid numerici: il gid dell'host puo' coincidere con un gruppo di sistema
-# gia' esistente (su macOS gid 20 = `dialout` in Ubuntu), quindi il gruppo
-# `builder` puo' non essere stato creato.
+# niagara_user_home: this is where the `sign` plugin looks for the signing
+# profile. It must be mounted from the host (see nbuild.sh) — the image only
+# ships the empty dir.
+# Numeric uid/gid: the host gid may clash with an existing system group (on
+# macOS gid 20 = `dialout` on Ubuntu), so the `builder` group may not exist.
 RUN mkdir -p "${NIAGARA_USER_HOME}" "${GRADLE_USER_HOME}" \
  && chown -R "${BUILDER_UID}:${BUILDER_GID}" /home/builder
 
-# Entrypoint inline: il build context e' la cartella degli installer, quindi non
-# possiamo fare COPY di file dal repo.
+# Inline entrypoint: the build context is the installer folder, so we cannot
+# COPY files from the repo.
 RUN <<'EOF' bash -eu
 cat > /usr/local/bin/entrypoint.sh <<'SCRIPT'
 #!/usr/bin/env bash
-# Esegue gradlew nel progetto montato su /work forzando i tre "home" Niagara
-# via -P, cosi' i gradle.properties con i path Windows restano intoccati.
+# Runs gradlew on the project mounted at /work, forcing the three Niagara
+# "homes" via -P so that gradle.properties files with Windows paths stay as is.
 set -euo pipefail
 
-# `shell` apre una bash invece di buildare: deve venire PRIMA del check su
-# gradlew, altrimenti non si puo' ispezionare l'immagine senza montare un progetto.
+# `shell` opens a bash instead of building: it must come BEFORE the gradlew
+# check, otherwise the image cannot be inspected without mounting a project.
 if [ "${1:-}" = "shell" ]; then
   shift
   exec bash "$@"
 fi
 
 if [ ! -x ./gradlew ]; then
-  echo "ERRORE: nessun ./gradlew in $(pwd). Monta la root del progetto su /work." >&2
+  echo "ERROR: no ./gradlew in $(pwd). Mount the project root at /work." >&2
   exit 2
 fi
 

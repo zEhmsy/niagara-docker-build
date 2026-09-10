@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Funzioni e default condivisi dagli script. Non eseguibile da solo.
+# Shared helpers and defaults. Not meant to be run on its own.
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
-die()  { echo "ERRORE: $*" >&2; exit 1; }
+die()  { echo "ERROR: $*" >&2; exit 1; }
 info() { echo ">> $*"; }
 
-# Config: prima il file utente, poi quello del repo (il repo vince, cosi' un
-# checkout dedicato puo' avere impostazioni proprie).
+# Config: user file first, repo file second (the repo wins, so a dedicated
+# checkout can carry its own settings).
 load_config() {
   local user_conf="${XDG_CONFIG_HOME:-$HOME/.config}/niagara-docker-build/config"
   # shellcheck source=/dev/null
@@ -31,7 +31,7 @@ load_config() {
   : "${JDK_URL_N4:=https://api.adoptium.net/v3/binary/latest/8/ga/linux/x64/jdk/hotspot/normal/eclipse}"
 }
 
-# 4.x -> "n4", tutto il resto -> "n5"
+# 4.x -> "n4", anything else -> "n5"
 niagara_family() {
   case "$1" in
     4.*) echo n4 ;;
@@ -45,6 +45,6 @@ image_name() { echo "${NIAGARA_IMAGE_PREFIX}:$1"; }
 version_major_minor() { echo "$1" | cut -d. -f1,2; }
 
 need_docker() {
-  command -v docker >/dev/null 2>&1 || die "docker non trovato nel PATH."
-  docker info >/dev/null 2>&1 || die "il daemon Docker non risponde. Avvia Docker Desktop / dockerd."
+  command -v docker >/dev/null 2>&1 || die "docker not found in PATH."
+  docker info >/dev/null 2>&1 || die "the Docker daemon is not responding. Start Docker Desktop / dockerd."
 }

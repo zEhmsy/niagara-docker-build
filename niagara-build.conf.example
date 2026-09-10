@@ -1,56 +1,56 @@
 # ---------------------------------------------------------------------------
-# Configurazione di niagara-docker-build.
+# niagara-docker-build configuration.
 #
-# Copia questo file in `niagara-build.conf` (nella root del repo) oppure in
-# ~/.config/niagara-docker-build/config e modifica quello che ti serve.
-# Ogni variabile puo' essere sovrascritta da environment:
+# Copy this file to `niagara-build.conf` (in the repo root) or to
+# ~/.config/niagara-docker-build/config and change what you need.
+# Every variable can be overridden from the environment:
 #   NIAGARA_DIST_DIR=/tmp/out ./scripts/nbuild.sh myModule
 #
-# Nessun valore qui e' obbligatorio: senza config gli script usano i default.
+# Nothing here is mandatory: with no config at all the scripts use the defaults.
 # ---------------------------------------------------------------------------
 
-# Cartella con gli installer Tridium (zip). NON committarla.
+# Folder holding the Tridium installers (zip). Do NOT commit it.
 # Default: <repo>/installers
 #NIAGARA_INSTALLERS_DIR="$HOME/Niagara/installers"
 
-# Versione usata quando non la passi a build-image.sh e non e' deducibile
-# dal gradle.properties del progetto.
+# Version used when you do not pass one to build-image.sh and it cannot be
+# derived from the project gradle.properties.
 #NIAGARA_DEFAULT_VERSION="4.15.3.28"
 
-# Prefisso dei tag immagine: le immagini si chiamano <prefisso>:<versione>.
+# Image tag prefix: images are named <prefix>:<version>.
 #NIAGARA_IMAGE_PREFIX="niagara-build"
 
-# Dove vive il profilo di firma (dentro ci sara' una dir `security/`).
-# E' la cartella montata come ~/.tridium nel container.
+# Where the signing profile lives (it will contain a `security/` dir).
+# This is the folder mounted as ~/.tridium inside the container.
 # Default: ~/.niagara-docker/tridium
 #NIAGARA_SIGNING_HOME="$HOME/.niagara-docker/tridium"
 
-# Dove copiare i jar prodotti.
-# Vuoto  -> <progetto>/dist
-# Valorizzato -> <NIAGARA_DIST_DIR>/<nome-progetto>/
+# Where to copy the produced jars.
+# Empty -> <project>/dist
+# Set   -> <NIAGARA_DIST_DIR>/<project-name>/
 #NIAGARA_DIST_DIR="$HOME/Niagara/artifacts"
 
-# 1 = tutti i jar in NIAGARA_DIST_DIR senza sottocartella per progetto.
+# 1 = all jars go straight into NIAGARA_DIST_DIR, no per-project subfolder.
 #NIAGARA_DIST_FLAT=0
 
-# Piattaforma dei container. Gli installer Tridium sono solo x86-64:
-# su Apple Silicon girano in emulazione (piu' lenti, ma funzionano).
+# Container platform. Tridium installers are x86-64 only: on Apple Silicon they
+# run under emulation (slower, but they work).
 #NIAGARA_PLATFORM="linux/amd64"
 
-# Glob per trovare l'installer dentro NIAGARA_INSTALLERS_DIR.
-# Cambiali se i tuoi zip hanno nomi diversi (vedi README, sezione Installer).
+# Globs used to find the installer inside NIAGARA_INSTALLERS_DIR.
+# Change them if your zips are named differently (see README, Installers).
 #NIAGARA_N5_INSTALLER_GLOB="Niagara_5_Debian-%VERSION%*.zip"
 #NIAGARA_N4_INSTALLER_GLOB="*N4*Linux_x64-%VERSION%*.zip"
 
-# Brand Tridium: compare nei path delle "home" Niagara.
-# N5 usa il brand minuscolo (/etc/niagara/<brand>/config/<ver>),
-# N4 quello del distributore (es. TridiumEMEA, Tridium, Honeywell...).
+# Tridium brand: it shows up in the Niagara "home" paths.
+# N5 uses the lowercase brand (/etc/niagara/<brand>/config/<ver>),
+# N4 uses the distributor one (e.g. TridiumEMEA, Tridium, Honeywell...).
 #NIAGARA_N5_BRAND="tridium"
 #NIAGARA_N4_BRAND="TridiumEMEA"
 
-# Sorgenti dei JDK completi affiancati (vedi README, sezione Perche' due JDK).
+# Sources for the full side-by-side JDKs (see README, "Why two JDKs").
 #JDK_URL_N5="https://api.adoptium.net/v3/binary/latest/25/ga/linux/x64/jdk/hotspot/normal/eclipse"
 #JDK_URL_N4="https://api.adoptium.net/v3/binary/latest/8/ga/linux/x64/jdk/hotspot/normal/eclipse"
 
-# Nome del volume Docker con la cache Gradle (uno per major version).
+# Name of the Docker volume holding the Gradle cache (one per major version).
 #NIAGARA_GRADLE_CACHE_PREFIX="niagara-gradle-cache"

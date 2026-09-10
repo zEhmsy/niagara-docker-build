@@ -1,6 +1,6 @@
-# Il build context e' la cartella degli installer (spesso alcuni GB): al daemon
-# mandiamo solo lo zip Debian di Niagara 5, non l'MSI Windows ne' l'RPM.
-# Se il tuo zip ha un nome diverso, aggiungi qui la sua riga `!<pattern>`.
+# The build context is the installer folder (often several GB): we only send the
+# Niagara 5 Debian zip to the daemon, not the Windows MSI nor the RPM.
+# If your zip is named differently, add its `!<pattern>` line here.
 *
 !Niagara_5_Debian-*.zip
 !*Debian*.zip

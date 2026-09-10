@@ -1,1 +1,1 @@
-Metti qui gli zip degli installer Tridium (non vengono committati).
+Drop the Tridium installer zips here (they are never committed).

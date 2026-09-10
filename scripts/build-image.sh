@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 #
-# Costruisce l'immagine di build Niagara a partire da un installer Tridium.
-# Da lanciare una volta per versione.
+# Builds the Niagara build image from a Tridium installer.
+# Run once per Niagara version.
 #
 #   ./scripts/build-image.sh 5.0.0.12
 #   ./scripts/build-image.sh 4.15.3.28
-#   ./scripts/build-image.sh 4.15.3.28 MioInstaller.zip   # nome zip esplicito
+#   ./scripts/build-image.sh 4.15.3.28 MyInstaller.zip   # explicit zip name
 #
 set -euo pipefail
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
@@ -16,14 +16,14 @@ VERSION="${1:-${NIAGARA_DEFAULT_VERSION}}"
 INSTALLER_ARG="${2:-}"
 
 if [ -z "${VERSION}" ]; then
-  echo "uso: $0 <versione-niagara> [nome-zip-installer]" >&2
-  echo "     es. $0 5.0.0.12   |   $0 4.15.3.28" >&2
+  echo "usage: $0 <niagara-version> [installer-zip-name]" >&2
+  echo "       e.g. $0 5.0.0.12   |   $0 4.15.3.28" >&2
   exit 2
 fi
 
 [ -d "${NIAGARA_INSTALLERS_DIR}" ] \
-  || die "cartella installer non trovata: ${NIAGARA_INSTALLERS_DIR}
-       Creala e mettici lo zip Tridium, oppure imposta NIAGARA_INSTALLERS_DIR."
+  || die "installer folder not found: ${NIAGARA_INSTALLERS_DIR}
+       Create it and drop the Tridium zip in, or set NIAGARA_INSTALLERS_DIR."
 
 FAMILY="$(niagara_family "${VERSION}")"
 MAJOR_MINOR="$(version_major_minor "${VERSION}")"
@@ -49,38 +49,46 @@ else
   INSTALLER_ARG_NAME=DEB_ZIP
 fi
 
-# Risoluzione dell'installer: nome esplicito, altrimenti glob dalla config.
+# Installer lookup: explicit name if given, otherwise the glob from the config.
+INSTALLER=""
 if [ -n "${INSTALLER_ARG}" ]; then
   INSTALLER="${INSTALLER_ARG}"
 else
-  # glob volutamente non quotato: e' un pattern, non un nome file.
-  # shellcheck disable=SC2012,SC2086
-  INSTALLER="$(cd "${NIAGARA_INSTALLERS_DIR}" && ls -1 ${GLOB} 2>/dev/null | head -1 || true)"
+  # The glob is deliberately unquoted: it is a pattern, not a filename. No `ls`
+  # in a pipe either: under `pipefail` a glob with no match would kill the script
+  # without printing anything.
+  # shellcheck disable=SC2086
+  for candidate in "${NIAGARA_INSTALLERS_DIR}"/${GLOB}; do
+    if [ -f "${candidate}" ]; then
+      INSTALLER="$(basename "${candidate}")"
+      break
+    fi
+  done
 fi
 
 if [ -z "${INSTALLER}" ] || [ ! -f "${NIAGARA_INSTALLERS_DIR}/${INSTALLER}" ]; then
-  echo "ERRORE: installer per Niagara ${VERSION} non trovato." >&2
-  echo "        cercato: ${NIAGARA_INSTALLERS_DIR}/${GLOB}" >&2
-  echo "        presenti:" >&2
+  echo "ERROR: no installer found for Niagara ${VERSION}." >&2
+  echo "       looked for: ${NIAGARA_INSTALLERS_DIR}/${GLOB}" >&2
+  echo "       available:" >&2
   # shellcheck disable=SC2012
   ls -1 "${NIAGARA_INSTALLERS_DIR}" 2>/dev/null | sed 's/^/          /' >&2 || true
-  echo "        Passa il nome esplicito: $0 ${VERSION} <nome.zip>" >&2
-  echo "        oppure adatta NIAGARA_N${FAMILY#n}_INSTALLER_GLOB nella config." >&2
+  echo "       Pass the name explicitly: $0 ${VERSION} <name.zip>" >&2
+  echo "       or adjust NIAGARA_N${FAMILY#n}_INSTALLER_GLOB in your config." >&2
   exit 1
 fi
 
-# Il context e' la cartella installer (spesso alcuni GB): il .dockerignore
-# accanto al Dockerfile lascia passare solo lo zip che serve. Se il tuo zip ha
-# un nome fuori standard, aggiungi la sua riga `!<pattern>` li' dentro.
+# The build context is the installer folder (often several GB): the
+# .dockerignore next to the Dockerfile lets only the zip we need through. If your
+# zip has a non-standard name, add its `!<pattern>` line in there.
 IGNORE_FILE="${REPO_ROOT}/docker/${DOCKERFILE}.dockerignore"
-[ -f "${IGNORE_FILE}" ] || die "manca ${IGNORE_FILE}"
+[ -f "${IGNORE_FILE}" ] || die "missing ${IGNORE_FILE}"
 grep -q -- "${INSTALLER%%[0-9]*}" "${IGNORE_FILE}" 2>/dev/null || \
-  info "ATTENZIONE: '${INSTALLER}' non sembra coperto da ${IGNORE_FILE##*/}; se il build fallisce con 'file not found', aggiungici la riga: !${INSTALLER}"
+  info "WARNING: '${INSTALLER}' does not look covered by ${IGNORE_FILE##*/}; if the build fails with 'file not found', add the line: !${INSTALLER}"
 
-info "immagine   : ${IMAGE}"
-info "installer  : ${INSTALLER}"
-info "piattaforma: ${NIAGARA_PLATFORM}"
-info "la prima volta richiede diversi minuti (download JDK + install Niagara)"
+info "image     : ${IMAGE}"
+info "installer : ${INSTALLER}"
+info "platform  : ${NIAGARA_PLATFORM}"
+info "the first run takes several minutes (JDK download + Niagara install)"
 
 DOCKER_BUILDKIT=1 docker build \
   --platform "${NIAGARA_PLATFORM}" \
@@ -94,7 +102,7 @@ DOCKER_BUILDKIT=1 docker build \
   "${NIAGARA_INSTALLERS_DIR}"
 
 echo
-info "fatto: ${IMAGE}"
+info "done: ${IMAGE}"
 docker image inspect "${IMAGE}" --format '   size: {{.Size}} bytes'
 echo
-echo "   Ora builda un modulo:  ./scripts/nbuild.sh /path/al/progetto"
+echo "   Now build a module:  ./scripts/nbuild.sh /path/to/project"
