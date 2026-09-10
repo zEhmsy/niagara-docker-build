@@ -1,0 +1,22 @@
+# Installer Tridium: mai nel repo.
+installers/*
+!installers/README.md
+*.zip
+*.deb
+*.rpm
+*.msi
+
+# Configurazione locale.
+niagara-build.conf
+
+# Materiale di firma.
+*.jceks
+*.jks
+*.p12
+*.pem
+*.key
+
+# Artefatti.
+dist/
+*.jar
+.DS_Store

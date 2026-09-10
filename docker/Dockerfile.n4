@@ -1,0 +1,152 @@
+# syntax=docker/dockerfile:1.7
+#
+# Immagine di BUILD per moduli Niagara 4.x (non di runtime).
+# Gemella di ./Dockerfile.n5.
+#
+# A differenza del .deb di N5, qui c'e' un installer con silent install:
+#   bash install.sh silent.properties
+# I plugin Gradle Tridium NON sono nello zip: vengono estratti dall'installer
+# dentro <niagara_home>/etc/m2, quindi l'immagine e' autosufficiente.
+#
+# LICENZA: contiene binari Tridium. Uso interno, mai su registry pubblici.
+
+ARG NIAGARA_VERSION=4.15.3.28
+
+# ---------------------------------------------------------------------------
+# Stage 1 - silent install dell'installer Linux
+# ---------------------------------------------------------------------------
+FROM ubuntu:24.04 AS install
+ARG NIAGARA_VERSION
+ARG INSTALLER_ZIP
+
+# Dipendenze richieste da install.sh (lista COMMON_FILES + UBUNTU_FILES):
+# gio -> libglib2.0-bin, fromdos -> tofrodos, visudo -> sudo,
+# useradd/groupadd/sg -> passwd, runuser -> util-linux, update-rc.d -> init-system-helpers
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      unzip rsync openssl sudo passwd util-linux libglib2.0-bin \
+      init-system-helpers tofrodos ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN --mount=type=bind,target=/ctx \
+    set -eu; \
+    mkdir -p /tmp/n4; cd /tmp/n4; \
+    unzip -q "/ctx/${INSTALLER_ZIP}"; \
+    # L'installer e' interattivo: le risposte vanno tutte messe nel file di
+    # properties. Un campo VUOTO viene trattato come "si'", quindi addUsers va
+    # forzato a no (in un container non ci sono utenti desktop da abilitare) e
+    # installService a no (non c'e' systemd).
+    sed -e "s/^installService=.*/installService=no/" \
+        -e "s/^installDesktopShortcuts=.*/installDesktopShortcuts=no/" \
+        -e "s/^installMenuShortcuts=.*/installMenuShortcuts=no/" \
+        -e "s/^addUsers=.*/addUsers=no/" \
+        -e "s/^modifySudoers=.*/modifySudoers=no/" \
+        silent.properties > /tmp/n4/silent.docker.properties; \
+    # NON impostare installDirectory: valorizzandolo l'installer fallisce a
+    # "set the Host ID and generate key material (runuser failed)". Lasciato
+    # vuoto usa il default, che e' comunque /opt/Niagara/Niagara-<versione>.
+    bash install.sh /tmp/n4/silent.docker.properties; \
+    cd /; rm -rf /tmp/n4; \
+    N=/opt/Niagara/Niagara-${NIAGARA_VERSION}; \
+    # Roba che serve solo a runtime/Workbench: via, pesa e non compila nulla.
+    rm -rf "$N/javadoc" "$N/cleanDist" "$N/conversion"; \
+    test -x "$N/jre/bin/javac"; \
+    test -d "$N/etc/m2"; \
+    test -d "$N/modules"
+
+# ---------------------------------------------------------------------------
+# Stage 1b - JDK 8 completo per `jar`, `jarsigner` e `javadoc`
+#
+# Il JRE Zulu 8 di Niagara ha `javac` ma NON `jar`, `jarsigner` e `javadoc`,
+# che i plugin Tridium invocano da PATH. Deve essere un JDK **8**: il task
+# `bajadoc` gira col doclet Tridium (lib/niagara-baja-doclet-*.jar), scritto
+# per la vecchia Doclet API - con il javadoc di un JDK moderno fallisce.
+# JAVA_HOME resta pero' il JRE di Niagara, l'unico con JavaFX (jre/lib/ext/jfxrt.jar).
+# ---------------------------------------------------------------------------
+FROM ubuntu:24.04 AS jdk
+ARG JDK_URL=https://api.adoptium.net/v3/binary/latest/8/ga/linux/x64/jdk/hotspot/normal/eclipse
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends curl ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+RUN set -eu; \
+    mkdir -p /opt/jdk-full; \
+    curl -fsSL "${JDK_URL}" | tar -xz -C /opt/jdk-full --strip-components=1; \
+    /opt/jdk-full/bin/jar 2>&1 | head -1; \
+    /opt/jdk-full/bin/javadoc -J-version 2>&1 | head -1; \
+    test -x /opt/jdk-full/bin/jarsigner
+
+# ---------------------------------------------------------------------------
+# Stage 2 - immagine finale
+# ---------------------------------------------------------------------------
+FROM ubuntu:24.04
+ARG NIAGARA_VERSION
+ARG NIAGARA_USER_HOME_SUBPATH=Niagara4.15/TridiumEMEA
+ARG BUILDER_UID=1000
+ARG BUILDER_GID=1000
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates unzip zip git \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN userdel -r ubuntu 2>/dev/null || true; \
+    groupadd -g "${BUILDER_GID}" builder 2>/dev/null || true; \
+    useradd -m -u "${BUILDER_UID}" -g "${BUILDER_GID}" -s /bin/bash builder
+
+COPY --from=install --chown=${BUILDER_UID}:${BUILDER_GID} \
+     /opt/Niagara/Niagara-${NIAGARA_VERSION} /opt/Niagara/Niagara-${NIAGARA_VERSION}
+COPY --from=jdk /opt/jdk-full /opt/jdk-full
+
+ENV NIAGARA_VERSION=${NIAGARA_VERSION} \
+    NIAGARA_HOME=/opt/Niagara/Niagara-${NIAGARA_VERSION} \
+    NIAGARA_USER_HOME=/home/builder/${NIAGARA_USER_HOME_SUBPATH} \
+    JAVA_HOME=/opt/Niagara/Niagara-${NIAGARA_VERSION}/jre \
+    GRADLE_PLUGIN_HOME=/opt/Niagara/Niagara-${NIAGARA_VERSION}/etc/m2/repository \
+    GRADLE_USER_HOME=/home/builder/.gradle
+ENV PATH=${JAVA_HOME}/bin:/opt/jdk-full/bin:${PATH}
+
+# Gradle NON cerca questi tool nel PATH: invoca direttamente
+# ${JAVA_HOME}/bin/<tool> (es. il task bajadoc lancia jre/bin/javadoc).
+# I symlink bastano: i launcher Java risolvono il link e trovano da soli
+# la home del JDK 8 vero.
+RUN for t in jar jarsigner javadoc javap; do \
+      ln -sf "/opt/jdk-full/bin/$t" "${JAVA_HOME}/bin/$t"; \
+    done \
+ && "${JAVA_HOME}/bin/javadoc" -J-version
+
+RUN mkdir -p "${NIAGARA_USER_HOME}" "${GRADLE_USER_HOME}" \
+ && chown -R "${BUILDER_UID}:${BUILDER_GID}" /home/builder
+
+RUN <<'EOF' bash -eu
+cat > /usr/local/bin/entrypoint.sh <<'SCRIPT'
+#!/usr/bin/env bash
+# N4 ha due "home" (in N5 sono tre: si aggiunge niagara_config_home).
+set -euo pipefail
+
+if [ "${1:-}" = "shell" ]; then
+  shift
+  exec bash "$@"
+fi
+
+if [ ! -x ./gradlew ]; then
+  echo "ERRORE: nessun ./gradlew in $(pwd). Monta la root del progetto su /work." >&2
+  exit 2
+fi
+
+TASKS=("$@")
+[ ${#TASKS[@]} -eq 0 ] && TASKS=(build)
+
+exec ./gradlew \
+  "-Pniagara_home=${NIAGARA_HOME}" \
+  "-Pniagara_user_home=${NIAGARA_USER_HOME}" \
+  "-PgradlePluginHome=${GRADLE_PLUGIN_HOME}" \
+  --console=plain \
+  "${TASKS[@]}"
+SCRIPT
+chmod 755 /usr/local/bin/entrypoint.sh
+EOF
+
+USER ${BUILDER_UID}:${BUILDER_GID}
+WORKDIR /work
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["build"]

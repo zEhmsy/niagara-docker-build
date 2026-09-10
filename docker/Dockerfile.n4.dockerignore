@@ -1,0 +1,6 @@
+# Context = cartella installer: al daemon mandiamo solo lo zip del Supervisor
+# Linux x64. Se il tuo zip ha un nome diverso, aggiungi la riga `!<pattern>`.
+*
+!*N4*Linux_x64*.zip
+!*Linux_x64*.zip
+!*linux*.zip
