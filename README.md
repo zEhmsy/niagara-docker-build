@@ -17,6 +17,10 @@ I jar escono firmati e pronti da caricare sulla station.
 - Gli artefatti finiscono dove decidi tu.
 - Niente binari Tridium in questo repo: solo Dockerfile e script.
 
+**Verificato su**: macOS Apple Silicon (emulazione x86-64), Docker Desktop —
+Niagara `4.15.3.28` (jar `-rt` + `-wb`) e Niagara `5.0.0.12` (jar unico),
+entrambi firmati e caricati con profilo di firma generato dagli script.
+
 ---
 
 ## Indice
